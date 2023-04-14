@@ -1,3 +1,5 @@
+import asyncio
+import time
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter, Text, BaseFilter
 from aiogram.filters.state import State, StatesGroup
@@ -5,10 +7,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
-                           InlineKeyboardMarkup, Message, PhotoSize)
+                           InlineKeyboardMarkup, Message, PhotoSize, KeyboardButton, ReplyKeyboardMarkup,
+                           ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto
 
-BOT_TOKEN = '6151759366:AAFOh5WJsy3x5kKyWj-XegNmjKlhf8a3Wh0'
+BOT_TOKEN = '6151759366:AAGNtavvreXK7eAxhNUth3Wpl0izf_UQghM'
 
 # Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
 storage: MemoryStorage = MemoryStorage()
@@ -34,7 +37,14 @@ class PhotoFilter(BaseFilter):
             return False
 
 
-# Cоздаем класс, наследуемый от StatesGroup, для группы состояний нашей FSM
+class MediaGroupFilter(BaseFilter):
+    async def __call__(self, massage: Message):
+        if massage.media_group_id:
+            return True
+
+        # Cоздаем класс, наследуемый от StatesGroup, для группы состояний нашей FSM
+
+
 class FSMFillCarInfo(StatesGroup):
     fill_model = State()  # Состояние ожидание ввода марки авто
     fill_year_of_build = State()  # Состояние ожидания ввода года выпуска авто
@@ -86,7 +96,7 @@ async def process_fillform_command(message: Message, state: FSMContext):
 # Этот хэндлер будет срабатывать, если введено корректное марка и модель
 # и переводить в состояние ожидания ввода года випуска авто
 
-@dp.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4)
+@dp.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4, ~Text(text='/fillform'))
 async def process_name_sent(message: Message, state: FSMContext):
     # Cохраняем введенное имя в хранилище по ключу "model"
     await state.update_data(model=message.text,
@@ -95,7 +105,6 @@ async def process_name_sent(message: Message, state: FSMContext):
     await message.answer(text='Дякую!\n\nнапишіть рік випуску авто')
 
     await state.set_state(FSMFillCarInfo.fill_year_of_build)
-
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_year_of_build), F.text)
@@ -132,7 +141,7 @@ async def process_of_add_capacity(message: Message, state: FSMContext):
     await state.set_state(FSMFillCarInfo.fill_gear_box_type)
 
 
-#that handler will work if add correct type of gearbox
+# that handler will work if add correct type of gearbox
 @dp.message(StateFilter(FSMFillCarInfo.fill_gear_box_type))
 async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await state.update_data(gear_box=message.text)
@@ -148,7 +157,7 @@ async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await state.set_state(FSMFillCarInfo.fill_if_has_crash)
 
 
-#That will star if correct ansfer for gearbox
+# That will star if correct ansfer for gearbox
 @dp.callback_query(StateFilter(FSMFillCarInfo.fill_if_has_crash),
                    Text(text=['yes', 'no']))
 async def process_gender_press(callback: CallbackQuery, state: FSMContext):
@@ -164,6 +173,7 @@ async def process_gender_press(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(text='Додайте від 4 до 10 фото')
         await state.set_state(FSMFillCarInfo.upload_photo)
 
+
 # Прцесс добаления фото/ сейчас есть бага если добалять все фото разом то у нас много сообщений о том что добавь фото
 # добавить вопрос хочет ли еще фото юзер
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo),
@@ -178,15 +188,36 @@ async def process_photo_sent(message: Message,
         await state.update_data(photos=[])
         data = await state.get_data()
         data['photos'].append(message.photo[-1].file_id)
-    if len(data['photos']) >= 4:
+    if len(data['photos']) < 4:
         await state.update_data(photos=data["photos"])
-        await message.answer(text='Дякую!\n\nВкажіть ціну')
+
+    elif len(data['photos']) < 11:
+        await state.update_data(photos=data["photos"])
+        button_stop: KeyboardButton = KeyboardButton(text='Більше не додавати')
+        keyboard: ReplyKeyboardMarkup = ReplyKeyboardMarkup(
+            keyboard=[[button_stop]], resize_keyboard=True)
+        await message.answer(reply_markup=keyboard, text='Ви можете додати ще фото')
+
+    elif len(data['photos']) >= 10:
+        await message.answer(text="Ви додали максимальну кількість фото!", reply_markup=ReplyKeyboardRemove())
+        await message.answer(text='Вкажіть ціну: ')
         await state.set_state(FSMFillCarInfo.fill_price)
-    else:
-        await message.answer(text='Додайте більше фото. \nMінімальна кількість 4 фотографії')
 
 
-@dp.message(StateFilter(FSMFillCarInfo.fill_price))
+@dp.message(StateFilter(FSMFillCarInfo.upload_photo),
+            Text(text='Більше не додавати'))
+async def process_of_change_state_to_fill_price(message: Message, state: FSMContext):
+    await message.answer(text="Вкажіть ціну: ", reply_markup=ReplyKeyboardRemove())
+    await state.set_state(FSMFillCarInfo.fill_price)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.upload_photo))
+async def error_upload_photo(message: Message):
+    await message.answer(text="Це не схоже на фото.\n"
+                              "Додойте від 4 до 10 фото")
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_price), F.text)
 async def process_fill_price(message: Message,
                              state: FSMContext):
     await state.update_data(price=message.text)
@@ -205,10 +236,14 @@ async def process_fill_price(message: Message,
 
         await bot.send_media_group(chat_id='-1001717002913', media=media)
         media = []
-        print(media)
     else:
         await message.answer(text='Вкажіть Контактний номер')
         await state.set_state(FSMFillCarInfo.fill_contact_info)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_price))
+async def error_for_price(message: Message):
+    await message.answer(text="Вкажіть ціну: ")
 
 
 # This handler works if user doesn`t have user_name and added valid number
@@ -230,7 +265,6 @@ async def process_add_contact(message: Message, state: FSMContext):
 
     await bot.send_media_group(chat_id='-1001717002913', media=media)
     media = []
-    print(media)
 
 
 # Handler works when user sent not valid number
