@@ -1,13 +1,10 @@
-import asyncio
-import time
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter, Text, BaseFilter
 from aiogram.filters.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (CallbackQuery, InlineKeyboardButton,
-                           InlineKeyboardMarkup, Message, PhotoSize, KeyboardButton, ReplyKeyboardMarkup,
+from aiogram.types import (Message, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto
 
@@ -51,11 +48,18 @@ class FSMFillCarInfo(StatesGroup):
     fill_engine_type = State()  # Состояние ввода типа двигателя
     fill_capacity = State()  # Состояние ввода обьема или можности
     fill_gear_box_type = State()  # Состояние ожидания ввода типа коробки
-    fill_if_has_crash = State()  # Состояние ожидания выбора были ли ДТП
+    fill_vin_or_numbers = State()  # Состояние ожидания выбора были ли ДТП
     upload_photo = State()  # Состояние ожидания загрузки фото
-    upload_photo_of_crash_datal = State()  # Состояние загрузки фото аварии
+    fill_some_info = State()
     fill_contact_info = State()  # That state activate if user doesnt have user_name
     fill_price = State()  # Состояние ожидания заполнение цены на авто
+
+
+@dp.message(StateFilter(default_state), ~Command(commands=['help', 'fillform', 'cancel']), ~CommandStart())
+async def answer_for_any_message(message: Message):
+    await message.answer(text='Привіт я Бот Перекуп\n\n'
+                              'Заповніть форму для продажі авто - '
+                              'натисніть -> /fillform')
 
 
 @dp.message(CommandStart(), StateFilter(default_state))
@@ -83,6 +87,13 @@ async def process_cancel_command(message: Message):
     await message.answer(text='Ви ще не почали заповнювати форму.\n\n'
                               'Щоб почати - '
                               'натисніть -> /fillform')
+
+
+@dp.message(Command(commands='help'))
+async def process_of_help(message: Message):
+    await message.answer(text='Щоб почати - '
+                              'натисніть -> /fillform\n'
+                              'Щоб перевати заповнення форми - натисніть -> /cancel ')
 
 
 # Этот хэндлер будет срабатывать на команду /fillform
@@ -145,33 +156,22 @@ async def process_of_add_capacity(message: Message, state: FSMContext):
 @dp.message(StateFilter(FSMFillCarInfo.fill_gear_box_type))
 async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await state.update_data(gear_box=message.text)
-    yes_button = InlineKeyboardButton(text='Так',
-                                      callback_data='yes')
-    no_button = InlineKeyboardButton(text='Ні',
-                                     callback_data='no')
-    keyboard: list[list[InlineKeyboardButton]] = [[yes_button, no_button]]
-    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await message.answer(text='Чи було авто в ДТП?\n'
-                              'Чи проводились ремонтні (оновлюючі роботи) с ЛКП чи кузовом?',
-                         reply_markup=markup)
-    await state.set_state(FSMFillCarInfo.fill_if_has_crash)
+    await message.answer(text='Напишіть VIN або державний номер авто: ', )
+    await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
 
 
 # That will star if correct ansfer for gearbox
-@dp.callback_query(StateFilter(FSMFillCarInfo.fill_if_has_crash),
-                   Text(text=['yes', 'no']))
-async def process_gender_press(callback: CallbackQuery, state: FSMContext):
-    if_has_crash = callback.data
-    await state.update_data(crash=callback.data)
-    await callback.message.delete()
+@dp.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers), lambda massage: len(massage.text) >= 5)
+async def process_vin_or_number(message: Message, state: FSMContext):
+    await state.update_data(vin_or_num=message.text)
+    await message.answer(text='Додайте від 4 до 10 фото')
+    await state.set_state(FSMFillCarInfo.upload_photo)
 
-    if if_has_crash == 'yes':
-        await callback.message.answer(text='Додайте від 4 до 10 фото\n'
-                                           'Особливо додайте фото деталей які ремонтувались')
-        await state.set_state(FSMFillCarInfo.upload_photo)
-    else:
-        await callback.message.answer(text='Додайте від 4 до 10 фото')
-        await state.set_state(FSMFillCarInfo.upload_photo)
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers))
+async def incorrect_num_or_vin(message: Message):
+    await message.answer(text="Вибачте, це не схоже на номер чи VIN\n"
+                              "Спробуйте ще раз")
 
 
 # Прцесс добаления фото/ сейчас есть бага если добалять все фото разом то у нас много сообщений о том что добавь фото
@@ -200,21 +200,37 @@ async def process_photo_sent(message: Message,
 
     elif len(data['photos']) >= 10:
         await message.answer(text="Ви додали максимальну кількість фото!", reply_markup=ReplyKeyboardRemove())
-        await message.answer(text='Вкажіть ціну: ')
-        await state.set_state(FSMFillCarInfo.fill_price)
+        await message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
+                                  ' комплектація, пробіг)')
+        await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo),
             Text(text='Більше не додавати'))
 async def process_of_change_state_to_fill_price(message: Message, state: FSMContext):
-    await message.answer(text="Вкажіть ціну: ", reply_markup=ReplyKeyboardRemove())
-    await state.set_state(FSMFillCarInfo.fill_price)
+    await message.answer(text="Напишіть декілька слів про ваше авто"
+                              "(підкраси, стан кузову, технічний стан, комплектація, пробіг)",
+                         reply_markup=ReplyKeyboardRemove())
+    await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo))
 async def error_upload_photo(message: Message):
     await message.answer(text="Це не схоже на фото.\n"
                               "Додойте від 4 до 10 фото")
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_some_info), F.text)
+async def process_adding_some_info(message: Message, state: FSMContext):
+    await state.update_data(car_info=message.text)
+    await message.answer(text='Вкажіть ціну: ')
+    await state.set_state(FSMFillCarInfo.fill_price)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_some_info))
+async def error_info_filling(message: Message):
+    await message.answer(text="Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан, "
+                              "комплектація, пробіг):")
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_price), F.text)
@@ -225,7 +241,7 @@ async def process_fill_price(message: Message,
     if user_dict[message.from_user.id]["user_url"]:
         await message.answer(text='Дякую. Менеджер звʼяжеться з вами')
         await state.clear()
-        caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nДТП: {user_dict[message.from_user.id]["crash"]}\nЦіна: {user_dict[message.from_user.id]["price"]}'
+        caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
         media: list = []
         photo_media = InputMediaPhoto(media=user_dict[message.from_user.id]["photos"][0], caption=caption)
         media.append(photo_media)
@@ -254,7 +270,7 @@ async def process_add_contact(message: Message, state: FSMContext):
     user_dict[message.from_user.id] = await state.get_data()
     await message.answer(text='Дякую. Менеджер звʼяжеться з вами')
     await state.clear()
-    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nДТП: {user_dict[message.from_user.id]["crash"]}\nЦіна: {user_dict[message.from_user.id]["price"]}'
+    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
     media: list = []
     photo_media = InputMediaPhoto(media=user_dict[message.from_user.id]["photos"][0], caption=caption)
     media.append(photo_media)
