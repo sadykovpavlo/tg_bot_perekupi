@@ -13,7 +13,7 @@ from aiogram.types import InputMediaPhoto
 env = Env()  # Создаем экземпляр класса Env
 env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
 bot_token = env('BOT_TOKEN')  # Сохраняем значение переменной окружения в переменную bot_token
-# BOT_TOKEN = '5953396996:AAHUz2MLseT-AX5PBkYwq0M1e5OOa15migk'
+
 
 # Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
 storage: MemoryStorage = MemoryStorage()
