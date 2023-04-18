@@ -1,3 +1,4 @@
+from environs import Env
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter, Text, BaseFilter
 from aiogram.filters.state import State, StatesGroup
@@ -9,13 +10,16 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto
 
-BOT_TOKEN = '5953396996:AAHUz2MLseT-AX5PBkYwq0M1e5OOa15migk'
+env = Env()  # Создаем экземпляр класса Env
+env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
+bot_token = env('BOT_TOKEN')  # Сохраняем значение переменной окружения в переменную bot_token
+# BOT_TOKEN = '5953396996:AAHUz2MLseT-AX5PBkYwq0M1e5OOa15migk'
 
 # Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
 storage: MemoryStorage = MemoryStorage()
 
 # Создаем объекты бота и диспетчера
-bot: Bot = Bot(BOT_TOKEN)
+bot: Bot = Bot(bot_token)
 dp: Dispatcher = Dispatcher(storage=storage)
 
 # Создаем "базу данных" пользователей
@@ -339,7 +343,7 @@ async def process_add_contact(message: Message, state: FSMContext):
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️",  reply_markup=markup)
     await state.clear()
-    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
+    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["contact"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
     media: list = []
     photo_media = InputMediaPhoto(media=user_dict[message.from_user.id]["photos"][0], caption=caption)
     media.append(photo_media)
