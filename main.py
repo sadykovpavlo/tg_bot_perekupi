@@ -4,7 +4,8 @@ from aiogram.filters.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import (Message, KeyboardButton, ReplyKeyboardMarkup,
+from aiogram.types import (CallbackQuery, InlineKeyboardButton,
+                           InlineKeyboardMarkup, Message, PhotoSize, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto
 
@@ -51,22 +52,25 @@ class FSMFillCarInfo(StatesGroup):
     fill_vin_or_numbers = State()  # Состояние ожидания выбора были ли ДТП
     upload_photo = State()  # Состояние ожидания загрузки фото
     fill_some_info = State()
-    fill_contact_info = State()  # That state activate if user doesnt have user_name
+    fill_contact_info = State()  # That state activate if user doesn't have user_name
     fill_price = State()  # Состояние ожидания заполнение цены на авто
 
 
 @dp.message(StateFilter(default_state), ~Command(commands=['help', 'fillform', 'cancel']), ~CommandStart())
 async def answer_for_any_message(message: Message):
-    await message.answer(text='Привіт я Бот Перекуп\n\n'
-                              'Заповніть форму для продажі авто - '
+    await message.answer(text='Привіт!\n\n'
+                              'Щоб продати своє авто - '
                               'натисніть -> /fillform')
 
 
 @dp.message(CommandStart(), StateFilter(default_state))
 async def process_start_command(message: Message):
-    await message.answer(text='Привіт я Бот Перекуп\n\n'
-                              'Заповніть форму для продажі авто - '
-                              'натисніть -> /fillform')
+    start_button = InlineKeyboardButton(text='Хочу продати авто  🚗',
+                                        callback_data='fillform')
+    keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
+                         reply_markup=markup)
 
 
 # Этот хэндлер будет срабатывать на команду "/cancel" в любых состояниях,
@@ -96,12 +100,38 @@ async def process_of_help(message: Message):
                               'Щоб перевати заповнення форми - натисніть -> /cancel ')
 
 
+@dp.message(Command(commands='fillform'), StateFilter(default_state))
+async def fillform_comand_message(message: Message):
+    start_button = InlineKeyboardButton(text='Хочу продати авто  🚗',
+                                        callback_data='fillform')
+    keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
+                         reply_markup=markup)
+
+
+@dp.message(Command(commands='fillform'), ~StateFilter(default_state))
+async def fillform_comand_message_not_def(message: Message):
+    await message.answer(text='Ви вже почали заповнювати форму.\n'
+                              'Щоб перевати заповнення форми - натисніть -> /cancel ')
+
+
 # Этот хэндлер будет срабатывать на команду /fillform
 # и переводить бота в состояние ожидания ввода марки и модели авто
-@dp.message(Command(commands='fillform'), StateFilter(default_state))
-async def process_fillform_command(message: Message, state: FSMContext):
-    await message.answer(text='Напишіть марку та модель авто одним повідомленням')
+@dp.callback_query(Text(text='fillform'), StateFilter(default_state))
+async def process_fillform_command(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await callback.message.answer(text='Напишіть марку та модель авто одним повідомленням')
     await state.set_state(FSMFillCarInfo.fill_model)
+
+
+# Этот хэндлер будет срабатывать на команду /fillform
+# и переводить бота в состояние ожидания ввода марки и модели авто
+@dp.callback_query(Text(text='fillform'), ~StateFilter(default_state))
+async def process_fillform_command_not_default(callback: CallbackQuery):
+    await callback.message.delete()
+    await callback.message.answer(text="Ви вже почали заповнювати форму.\n"
+                                       "Щоб перевати заповнення форми - натисніть -> /cancel ")
 
 
 # Этот хэндлер будет срабатывать, если введено корректное марка и модель
@@ -240,6 +270,11 @@ async def process_fill_price(message: Message,
     user_dict[message.from_user.id] = await state.get_data()
     if user_dict[message.from_user.id]["user_url"]:
         await message.answer(text='Дякую. Менеджер звʼяжеться з вами')
+        start_button = InlineKeyboardButton(text='Повторити 🔄',
+                                            callback_data='fillform')
+        keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
+        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
         await state.clear()
         caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
         media: list = []
@@ -269,6 +304,11 @@ async def process_add_contact(message: Message, state: FSMContext):
     await state.update_data(contact=message.text)
     user_dict[message.from_user.id] = await state.get_data()
     await message.answer(text='Дякую. Менеджер звʼяжеться з вами')
+    start_button = InlineKeyboardButton(text='Повторити 🔄',
+                                        callback_data='fillform')
+    keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️",  reply_markup=markup)
     await state.clear()
     caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
     media: list = []
