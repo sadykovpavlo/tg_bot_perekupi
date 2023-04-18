@@ -5,11 +5,11 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
-                           InlineKeyboardMarkup, Message, PhotoSize, KeyboardButton, ReplyKeyboardMarkup,
+                           InlineKeyboardMarkup, Message, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto
 
-BOT_TOKEN = '6151759366:AAGNtavvreXK7eAxhNUth3Wpl0izf_UQghM'
+BOT_TOKEN = '5953396996:AAHUz2MLseT-AX5PBkYwq0M1e5OOa15migk'
 
 # Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
 storage: MemoryStorage = MemoryStorage()
@@ -50,6 +50,7 @@ class FSMFillCarInfo(StatesGroup):
     fill_capacity = State()  # Состояние ввода обьема или можности
     fill_gear_box_type = State()  # Состояние ожидания ввода типа коробки
     fill_vin_or_numbers = State()  # Состояние ожидания выбора были ли ДТП
+    confirm_vin_state = State()
     upload_photo = State()  # Состояние ожидания загрузки фото
     fill_some_info = State()
     fill_contact_info = State()  # That state activate if user doesn't have user_name
@@ -137,7 +138,8 @@ async def process_fillform_command_not_default(callback: CallbackQuery):
 # Этот хэндлер будет срабатывать, если введено корректное марка и модель
 # и переводить в состояние ожидания ввода года випуска авто
 
-@dp.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4, ~Text(text='/fillform'))
+@dp.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4, ~Text(text=['/fillform',
+                                                                                                        '/start']))
 async def process_name_sent(message: Message, state: FSMContext):
     # Cохраняем введенное имя в хранилище по ключу "model"
     await state.update_data(model=message.text,
@@ -189,19 +191,46 @@ async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await message.answer(text='Напишіть VIN або державний номер авто: ', )
     await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
 
+#########################################################################################
+
 
 # That will star if correct ansfer for gearbox
 @dp.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers), lambda massage: len(massage.text) >= 5)
 async def process_vin_or_number(message: Message, state: FSMContext):
     await state.update_data(vin_or_num=message.text)
-    await message.answer(text='Додайте від 4 до 10 фото')
-    await state.set_state(FSMFillCarInfo.upload_photo)
+    yes_but = InlineKeyboardButton(text='Вірно ✅',
+                                            callback_data='yes')
+    no_but = InlineKeyboardButton(text='Ввести ще раз 🔁',
+                                   callback_data='no')
+    keyboard: list[list[InlineKeyboardButton]] = [
+        [yes_but, no_but]]
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await message.answer(text=f"Підтвердіть корректність введених данних {message.text}",
+                         reply_markup=markup)
+    await state.set_state(FSMFillCarInfo.confirm_vin_state)
+
+@dp.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state), Text(text=['yes', 'no']))
+async def confirm_vin(callback: CallbackQuery, state: FSMContext):
+    if callback.data == 'yes':
+        await callback.message.delete()
+        await callback.message.answer(text='Додайте від 4 до 10 фото')
+        await state.set_state(FSMFillCarInfo.upload_photo)
+    elif callback.data == 'no':
+        await callback.message.delete()
+        await callback.message.answer(text='Напишіть VIN або державний номер авто: ')
+        await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
+
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers))
 async def incorrect_num_or_vin(message: Message):
     await message.answer(text="Вибачте, це не схоже на номер чи VIN\n"
                               "Спробуйте ще раз")
+
+@dp.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state))
+async def confirm_vin_error(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(text='Ви не підтвердели коррекність данних\n'
+                                       'Ви можете підтвердити у повідомленні вище.')
 
 
 # Прцесс добаления фото/ сейчас есть бага если добалять все фото разом то у нас много сообщений о том что добавь фото
@@ -223,7 +252,7 @@ async def process_photo_sent(message: Message,
 
     elif len(data['photos']) < 11:
         await state.update_data(photos=data["photos"])
-        button_stop: KeyboardButton = KeyboardButton(text='Більше не додавати')
+        button_stop: KeyboardButton = KeyboardButton(text='Більше не додавати 🛑')
         keyboard: ReplyKeyboardMarkup = ReplyKeyboardMarkup(
             keyboard=[[button_stop]], resize_keyboard=True)
         await message.answer(reply_markup=keyboard, text='Ви можете додати ще фото')
@@ -236,7 +265,7 @@ async def process_photo_sent(message: Message,
 
 
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo),
-            Text(text='Більше не додавати'))
+            Text(text='Більше не додавати 🛑'))
 async def process_of_change_state_to_fill_price(message: Message, state: FSMContext):
     await message.answer(text="Напишіть декілька слів про ваше авто"
                               "(підкраси, стан кузову, технічний стан, комплектація, пробіг)",
