@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 from environs import Env
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter, Text, BaseFilter
@@ -8,12 +11,12 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
-from aiogram.types import InputMediaPhoto
+from aiogram.types import InputMediaPhoto, InputMediaVideo
+from aiogram.exceptions import TelegramBadRequest
 
 env = Env()  # Создаем экземпляр класса Env
 env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
 bot_token = env('BOT_TOKEN')  # Сохраняем значение переменной окружения в переменную bot_token
-
 
 # Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
 storage: MemoryStorage = MemoryStorage()
@@ -56,6 +59,8 @@ class FSMFillCarInfo(StatesGroup):
     fill_vin_or_numbers = State()  # Состояние ожидания выбора были ли ДТП
     confirm_vin_state = State()
     upload_photo = State()  # Состояние ожидания загрузки фото
+    upload_video_question = State()
+    upload_video = State()
     fill_some_info = State()
     fill_contact_info = State()  # That state activate if user doesn't have user_name
     fill_price = State()  # Состояние ожидания заполнение цены на авто
@@ -74,8 +79,9 @@ async def process_start_command(message: Message):
                                         callback_data='fillform')
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
-                         reply_markup=markup)
+    msg = await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
+                               reply_markup=markup)
+    print(msg.message_id)
 
 
 # Этот хэндлер будет срабатывать на команду "/cancel" в любых состояниях,
@@ -195,6 +201,7 @@ async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await message.answer(text='Напишіть VIN або державний номер авто: ', )
     await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
 
+
 #########################################################################################
 
 
@@ -203,15 +210,16 @@ async def process_fill_gear_box_type(message: Message, state: FSMContext):
 async def process_vin_or_number(message: Message, state: FSMContext):
     await state.update_data(vin_or_num=message.text)
     yes_but = InlineKeyboardButton(text='Вірно ✅',
-                                            callback_data='yes')
+                                   callback_data='yes')
     no_but = InlineKeyboardButton(text='Ввести ще раз 🔁',
-                                   callback_data='no')
+                                  callback_data='no')
     keyboard: list[list[InlineKeyboardButton]] = [
         [yes_but, no_but]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text=f"Підтвердіть корректність введених данних {message.text}",
                          reply_markup=markup)
     await state.set_state(FSMFillCarInfo.confirm_vin_state)
+
 
 @dp.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state), Text(text=['yes', 'no']))
 async def confirm_vin(callback: CallbackQuery, state: FSMContext):
@@ -225,11 +233,11 @@ async def confirm_vin(callback: CallbackQuery, state: FSMContext):
         await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
 
 
-
 @dp.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers))
 async def incorrect_num_or_vin(message: Message):
     await message.answer(text="Вибачте, це не схоже на номер чи VIN\n"
                               "Спробуйте ще раз")
+
 
 @dp.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state))
 async def confirm_vin_error(callback: CallbackQuery, state: FSMContext):
@@ -242,8 +250,7 @@ async def confirm_vin_error(callback: CallbackQuery, state: FSMContext):
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo),
             F.photo[-1].as_('largest_photo'))
 async def process_photo_sent(message: Message,
-                             state: FSMContext,
-                             ):
+                             state: FSMContext):
     data = await state.get_data()
     if 'photos' in data:
         data['photos'].append(message.photo[-1].file_id)
@@ -255,32 +262,108 @@ async def process_photo_sent(message: Message,
         await state.update_data(photos=data["photos"])
 
     elif len(data['photos']) < 11:
+        massage_id_data = await state.get_data()
+        if "sanded_message" not in massage_id_data:
+            await state.update_data(sanded_message=['1'])
+            massage_id_data = await state.get_data()
+        if "massage" in massage_id_data:
+            if massage_id_data['massage'][-1] != massage_id_data["sanded_message"][-1]:
+                print("massage_id_data", massage_id_data['massage'][-1])
+                print("sanded_message", massage_id_data["sanded_message"][-1])
+                id = massage_id_data['massage'][-1]
+                int(id)
+                await bot.delete_message(chat_id=message.from_user.id, message_id=id)
+                data = await state.get_data()
+                sanded_dict = await state.get_data()
+                sanded_dict['sanded_message'].append(id)
+                await state.update_data(sanded_message=sanded_dict['sanded_message'])
+
+
         await state.update_data(photos=data["photos"])
-        button_stop: KeyboardButton = KeyboardButton(text='Більше не додавати 🛑')
-        keyboard: ReplyKeyboardMarkup = ReplyKeyboardMarkup(
-            keyboard=[[button_stop]], resize_keyboard=True)
-        await message.answer(reply_markup=keyboard, text='Ви можете додати ще фото')
+        stop_but = InlineKeyboardButton(text='Більше не додавати 🛑',
+                                        callback_data='no')
+        keyboard: list[list[InlineKeyboardButton]] = [
+            [stop_but]]
+        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        msg = await message.answer(text="Чи бажаєте Ви додати ще фото?",
+                                   reply_markup=markup)
+
+        massage_id_data = await state.get_data()
+        if 'massage' in massage_id_data:
+            massage_id_data["massage"].append(msg.message_id)
+            await state.update_data(massage=massage_id_data["massage"])
+        if 'massage' not in massage_id_data:
+            await state.update_data(massage=[])
+            massage_id_data = await state.get_data()
+            massage_id_data["massage"].append(msg.message_id)
+            print(massage_id_data["massage"])
+            await state.update_data(massage=massage_id_data["massage"])
+
+
 
     elif len(data['photos']) >= 10:
-        await message.answer(text="Ви додали максимальну кількість фото!", reply_markup=ReplyKeyboardRemove())
-        await message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
-                                  ' комплектація, пробіг)')
-        await state.set_state(FSMFillCarInfo.fill_some_info)
+        await message.answer(text="Ви додали максимальну кількість фото!")
+        yes_but = InlineKeyboardButton(text="Додати відео ✅",
+                                       callback_data='yes')
+        no_but = InlineKeyboardButton(text='Пропустити ➡️',
+                                      callback_data='no')
+        keyboard: list[list[InlineKeyboardButton]] = [
+            [yes_but, no_but]]
+        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+        await message.answer(text="Чи бажаєте Ви додати відеоогляд авто?",
+                             reply_markup=markup)
+        await state.set_state(FSMFillCarInfo.upload_video_question)
 
 
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo),
             Text(text='Більше не додавати 🛑'))
 async def process_of_change_state_to_fill_price(message: Message, state: FSMContext):
-    await message.answer(text="Напишіть декілька слів про ваше авто"
-                              "(підкраси, стан кузову, технічний стан, комплектація, пробіг)",
+    await message.answer(text="Фото збережені.",
                          reply_markup=ReplyKeyboardRemove())
-    await state.set_state(FSMFillCarInfo.fill_some_info)
+    yes_but = InlineKeyboardButton(text="Додати відео ✅",
+                                   callback_data='yes')
+    no_but = InlineKeyboardButton(text='Пропустити ➡️',
+                                  callback_data='no')
+    keyboard: list[list[InlineKeyboardButton]] = [
+        [yes_but, no_but]]
+    markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+    await message.answer(text="Чи бажаєте Ви додати відеоогляд авто?",
+                         reply_markup=markup)
+
+    await state.set_state(FSMFillCarInfo.upload_video_question)
+
+
+@dp.callback_query(StateFilter(FSMFillCarInfo.upload_video_question), Text(text=['yes', 'no']))
+async def process_of_upload_video_question(callback: CallbackQuery, state: FSMContext):
+    if callback.data == 'yes':
+        await callback.message.delete()
+        await callback.message.answer(text='Додайте відео: ')
+        await state.set_state(FSMFillCarInfo.upload_video)
+    elif callback.data == 'no':
+        await callback.message.delete()
+        await callback.message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
+                                           ' комплектація, пробіг)')
+        await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo))
 async def error_upload_photo(message: Message):
     await message.answer(text="Це не схоже на фото.\n"
                               "Додойте від 4 до 10 фото")
+
+
+@dp.message(StateFilter(FSMFillCarInfo.upload_video), F.video)
+async def process_of_upload_video(message: Message, state: FSMContext):
+    await state.update_data(video=message.video.file_id)
+    await message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
+                              ' комплектація, пробіг)')
+    await state.set_state(FSMFillCarInfo.fill_some_info)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.upload_video))
+async def error_vidoe_upload(message: Message):
+    await message.answer(text='Це не схоже на відео.\n'
+                              'Спробуйте ще раз.')
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_some_info), F.text)
@@ -311,6 +394,9 @@ async def process_fill_price(message: Message,
         await state.clear()
         caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
         media: list = []
+        if "video" in user_dict[message.from_user.id]:
+            video_media = InputMediaVideo(media=user_dict[message.from_user.id]['video'])
+            media.append(video_media)
         photo_media = InputMediaPhoto(media=user_dict[message.from_user.id]["photos"][0], caption=caption)
         media.append(photo_media)
         object_photos = user_dict[message.from_user.id]["photos"][1:9]
@@ -341,15 +427,19 @@ async def process_add_contact(message: Message, state: FSMContext):
                                         callback_data='fillform')
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️",  reply_markup=markup)
+    await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
     await state.clear()
     caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["contact"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
     media: list = []
+    if "video" in user_dict[message.from_user.id]:
+        video_media = InputMediaVideo(media=user_dict[message.from_user.id]['video'])
+        media.append(video_media)
     photo_media = InputMediaPhoto(media=user_dict[message.from_user.id]["photos"][0], caption=caption)
     media.append(photo_media)
     object_photos = user_dict[message.from_user.id]["photos"][1:9]
     for object_photo in object_photos:
         photo_media = InputMediaPhoto(media=object_photo)
+
         media.append(photo_media)
 
     await bot.send_media_group(chat_id='-1001717002913', media=media)
