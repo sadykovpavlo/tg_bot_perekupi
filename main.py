@@ -250,7 +250,8 @@ async def confirm_vin_error(callback: CallbackQuery, state: FSMContext):
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo),
             F.photo[-1].as_('largest_photo'))
 async def process_photo_sent(message: Message,
-                             state: FSMContext):
+                             state: FSMContext,
+                             ):
     data = await state.get_data()
     if 'photos' in data:
         data['photos'].append(message.photo[-1].file_id)
@@ -262,42 +263,13 @@ async def process_photo_sent(message: Message,
         await state.update_data(photos=data["photos"])
 
     elif len(data['photos']) < 11:
-        massage_id_data = await state.get_data()
-        if "sanded_message" not in massage_id_data:
-            await state.update_data(sanded_message=['1'])
-            massage_id_data = await state.get_data()
-        if "massage" in massage_id_data:
-            if massage_id_data['massage'][-1] != massage_id_data["sanded_message"][-1]:
-                print("massage_id_data", massage_id_data['massage'][-1])
-                print("sanded_message", massage_id_data["sanded_message"][-1])
-                id = massage_id_data['massage'][-1]
-                int(id)
-                await bot.delete_message(chat_id=message.from_user.id, message_id=id)
-                data = await state.get_data()
-                sanded_dict = await state.get_data()
-                sanded_dict['sanded_message'].append(id)
-                await state.update_data(sanded_message=sanded_dict['sanded_message'])
-
-
         await state.update_data(photos=data["photos"])
-        stop_but = InlineKeyboardButton(text='Більше не додавати 🛑',
-                                        callback_data='no')
-        keyboard: list[list[InlineKeyboardButton]] = [
-            [stop_but]]
-        markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-        msg = await message.answer(text="Чи бажаєте Ви додати ще фото?",
-                                   reply_markup=markup)
-
-        massage_id_data = await state.get_data()
-        if 'massage' in massage_id_data:
-            massage_id_data["massage"].append(msg.message_id)
-            await state.update_data(massage=massage_id_data["massage"])
-        if 'massage' not in massage_id_data:
-            await state.update_data(massage=[])
-            massage_id_data = await state.get_data()
-            massage_id_data["massage"].append(msg.message_id)
-            print(massage_id_data["massage"])
-            await state.update_data(massage=massage_id_data["massage"])
+        button_stop: KeyboardButton = KeyboardButton(text='Більше не додавати 🛑')
+        keyboard: ReplyKeyboardMarkup = ReplyKeyboardMarkup(
+            keyboard=[[button_stop]], resize_keyboard=True)
+        await message.answer(reply_markup=keyboard, text='Ви можете додати ще фото\n'
+                                                         'Якщо ви не бажаєте додавати більше фото - натисніть  '
+                                                         '\n"Більше не додавати 🛑"')
 
 
 
