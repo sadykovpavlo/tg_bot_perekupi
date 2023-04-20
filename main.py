@@ -1,6 +1,3 @@
-import asyncio
-import time
-
 from environs import Env
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart, StateFilter, Text, BaseFilter
