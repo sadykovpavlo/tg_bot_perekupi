@@ -12,7 +12,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto, InputMediaVideo
-from aiogram.exceptions import TelegramBadRequest
+
 
 env = Env()  # Создаем экземпляр класса Env
 env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
@@ -79,9 +79,8 @@ async def process_start_command(message: Message):
                                         callback_data='fillform')
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    msg = await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
+    await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
                                reply_markup=markup)
-    print(msg.message_id)
 
 
 # Этот хэндлер будет срабатывать на команду "/cancel" в любых состояниях,
@@ -274,7 +273,7 @@ async def process_photo_sent(message: Message,
 
 
     elif len(data['photos']) >= 10:
-        await message.answer(text="Ви додали максимальну кількість фото!")
+        await message.answer(text="Ви додали максимальну кількість фото!", reply_markup=ReplyKeyboardRemove())
         yes_but = InlineKeyboardButton(text="Додати відео ✅",
                                        callback_data='yes')
         no_but = InlineKeyboardButton(text='Пропустити ➡️',
