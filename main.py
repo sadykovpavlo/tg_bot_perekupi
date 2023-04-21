@@ -322,7 +322,7 @@ async def error_upload_photo(message: Message):
 async def process_of_upload_video(message: Message, state: FSMContext):
     await state.update_data(video=message.video.file_id)
     await message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
-                              ' комплектація, пробіг)')
+                              ' комплектація, пробіг):')
     await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
