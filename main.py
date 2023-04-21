@@ -9,25 +9,18 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto, InputMediaVideo
-from aiogram.fsm.storage.redis import RedisStorage, Redis
-
 
 
 env = Env()  # Создаем экземпляр класса Env
 env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
 bot_token = env('BOT_TOKEN')  # Сохраняем значение переменной окружения в переменную bot_token
 
-redis: Redis = Redis(host='localhost')
-storage: RedisStorage = RedisStorage(redis=redis)
+# Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
+storage: MemoryStorage = MemoryStorage()
 
 # Создаем объекты бота и диспетчера
 bot: Bot = Bot(bot_token)
-# Инициализируем Redis
-# Инициализируем хранилище (создаем экземпляр класса RedisStorage)
-
-
 dp: Dispatcher = Dispatcher(storage=storage)
-
 # Создаем "базу данных" пользователей
 user_dict: dict[int, dict[str, str | int | bool]] = {}
 
@@ -315,7 +308,7 @@ async def process_of_upload_video_question(callback: CallbackQuery, state: FSMCo
     elif callback.data == 'no':
         await callback.message.delete()
         await callback.message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
-                                           ' комплектація, пробіг)')
+                                           ' комплектація, пробіг):')
         await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
