@@ -9,17 +9,23 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message, KeyboardButton, ReplyKeyboardMarkup,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto, InputMediaVideo
+from aiogram.fsm.storage.redis import RedisStorage, Redis
+
 
 
 env = Env()  # Создаем экземпляр класса Env
 env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
 bot_token = env('BOT_TOKEN')  # Сохраняем значение переменной окружения в переменную bot_token
 
-# Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
-storage: MemoryStorage = MemoryStorage()
+redis: Redis = Redis(host='localhost')
+storage: RedisStorage = RedisStorage(redis=redis)
 
 # Создаем объекты бота и диспетчера
 bot: Bot = Bot(bot_token)
+# Инициализируем Redis
+# Инициализируем хранилище (создаем экземпляр класса RedisStorage)
+
+
 dp: Dispatcher = Dispatcher(storage=storage)
 
 # Создаем "базу данных" пользователей
@@ -76,7 +82,7 @@ async def process_start_command(message: Message):
                                         callback_data='fillform')
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await message.answer(text='Привіт! Якщо хочеш продати авто нажимай на кнопку ⬇️',
+    await message.answer(text='Привіт! Якщо хочеш продати авто натисніть на кнопку ⬇️',
                                reply_markup=markup)
 
 
@@ -151,7 +157,7 @@ async def process_name_sent(message: Message, state: FSMContext):
     await state.update_data(model=message.text,
                             user_url=message.from_user.username,
                             user_name=message.from_user.full_name)
-    await message.answer(text='Дякую!\n\nнапишіть рік випуску авто')
+    await message.answer(text='Дякую!\n\nНапишіть рік випуску авто:')
 
     await state.set_state(FSMFillCarInfo.fill_year_of_build)
 
@@ -159,8 +165,8 @@ async def process_name_sent(message: Message, state: FSMContext):
 @dp.message(StateFilter(FSMFillCarInfo.fill_year_of_build), F.text)
 async def process_year_of_build_sent(message: Message, state: FSMContext):
     await state.update_data(year_of_build=message.text)
-    await message.answer(text='Напишіть тип палива двигуна\n'
-                              'Або елеткро чи гібрит')
+    await message.answer(text='Напишіть тип палива двигуна,\n'
+                              'або електро/гібрид:')
     await state.set_state(FSMFillCarInfo.fill_engine_type)
 
 
@@ -168,7 +174,7 @@ async def process_year_of_build_sent(message: Message, state: FSMContext):
 # будет введено что-то некорректное
 @dp.message(StateFilter(FSMFillCarInfo.fill_model))
 async def warning_not_name(message: Message):
-    await message.answer(text='Те що ви відправили не схоже на марку та модель авто\n\n'
+    await message.answer(text='Те, що Ви відправили, не схоже на марку та модель авто\n\n'
                               'Спробуйте ще раз\n\n'
                               'Мінімальна кількість символів - 4\n\n'
                               'Для відміни відправки форми - '
@@ -178,7 +184,8 @@ async def warning_not_name(message: Message):
 @dp.message(StateFilter(FSMFillCarInfo.fill_engine_type), F.text)
 async def process_engine_type_sent(message: Message, state: FSMContext):
     await state.update_data(engine_type=message.text)
-    await message.answer(text='Дякую! Тепер напишить обʼєм двигуна / для електро кількіть кВт')
+    await message.answer(text='Дякую!\n'
+                              'Тепер напишить обʼєм двигуна, або для електро кількіть кВт:')
     await state.set_state(FSMFillCarInfo.fill_capacity)
 
 
@@ -186,7 +193,7 @@ async def process_engine_type_sent(message: Message, state: FSMContext):
 async def process_of_add_capacity(message: Message, state: FSMContext):
     await state.update_data(engine_capacity=message.text)
     # buttons
-    await message.answer(text='Напишіть тип коробки передач')
+    await message.answer(text='Напишіть тип коробки передач:')
     await state.set_state(FSMFillCarInfo.fill_gear_box_type)
 
 
@@ -197,8 +204,6 @@ async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await message.answer(text='Напишіть VIN або державний номер авто: ', )
     await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
 
-
-#########################################################################################
 
 
 # That will star if correct ansfer for gearbox
@@ -212,7 +217,7 @@ async def process_vin_or_number(message: Message, state: FSMContext):
     keyboard: list[list[InlineKeyboardButton]] = [
         [yes_but, no_but]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await message.answer(text=f"Підтвердіть корректність введених данних {message.text}",
+    await message.answer(text=f"Підтвердіть коректність введених даних {message.text}",
                          reply_markup=markup)
     await state.set_state(FSMFillCarInfo.confirm_vin_state)
 
@@ -221,7 +226,7 @@ async def process_vin_or_number(message: Message, state: FSMContext):
 async def confirm_vin(callback: CallbackQuery, state: FSMContext):
     if callback.data == 'yes':
         await callback.message.delete()
-        await callback.message.answer(text='Додайте від 4 до 10 фото')
+        await callback.message.answer(text='Додайте від 4 до 10 фото:')
         await state.set_state(FSMFillCarInfo.upload_photo)
     elif callback.data == 'no':
         await callback.message.delete()
@@ -236,7 +241,7 @@ async def incorrect_num_or_vin(message: Message):
 
 
 @dp.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state))
-async def confirm_vin_error(callback: CallbackQuery, state: FSMContext):
+async def confirm_vin_error(callback: CallbackQuery):
     await callback.message.answer(text='Ви не підтвердели коррекність данних\n'
                                        'Ви можете підтвердити у повідомленні вище.')
 
@@ -317,7 +322,7 @@ async def process_of_upload_video_question(callback: CallbackQuery, state: FSMCo
 @dp.message(StateFilter(FSMFillCarInfo.upload_photo))
 async def error_upload_photo(message: Message):
     await message.answer(text="Це не схоже на фото.\n"
-                              "Додойте від 4 до 10 фото")
+                              "Додайте від 4 до 10 фото:")
 
 
 @dp.message(StateFilter(FSMFillCarInfo.upload_video), F.video)
@@ -343,7 +348,7 @@ async def process_adding_some_info(message: Message, state: FSMContext):
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_some_info))
 async def error_info_filling(message: Message):
-    await message.answer(text="Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан, "
+    await message.answer(text="Напишіть декілька слів про ваше авто (підкраси, стан кузову, технічний стан, "
                               "комплектація, пробіг):")
 
 
@@ -353,7 +358,7 @@ async def process_fill_price(message: Message,
     await state.update_data(price=message.text)
     user_dict[message.from_user.id] = await state.get_data()
     if user_dict[message.from_user.id]["user_url"]:
-        await message.answer(text='Дякую. Менеджер звʼяжеться з вами')
+        await message.answer(text='Дякую. Менеджер звʼяжеться з вами.')
         start_button = InlineKeyboardButton(text='Повторити 🔄',
                                             callback_data='fillform')
         keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
@@ -390,7 +395,7 @@ async def error_for_price(message: Message):
 async def process_add_contact(message: Message, state: FSMContext):
     await state.update_data(contact=message.text)
     user_dict[message.from_user.id] = await state.get_data()
-    await message.answer(text='Дякую. Менеджер звʼяжеться з вами')
+    await message.answer(text='Дякую. Менеджер звʼяжеться з вами.')
     start_button = InlineKeyboardButton(text='Повторити 🔄',
                                         callback_data='fillform')
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
