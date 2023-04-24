@@ -10,10 +10,10 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton,
                            ReplyKeyboardRemove)
 from aiogram.types import InputMediaPhoto, InputMediaVideo
 
-
 env = Env()  # Создаем экземпляр класса Env
 env.read_env()  # Методом read_env() читаем файл .env и загружаем из него переменные в окружение
 bot_token = env('BOT_TOKEN')  # Сохраняем значение переменной окружения в переменную bot_token
+chat_id = env('CHAT_ID')
 
 # Инициализируем хранилище (создаем экземпляр класса MemoryStorage)
 storage: MemoryStorage = MemoryStorage()
@@ -48,6 +48,7 @@ class MediaGroupFilter(BaseFilter):
 
 class FSMFillCarInfo(StatesGroup):
     fill_model = State()  # Состояние ожидание ввода марки авто
+    fill_city = State()
     fill_year_of_build = State()  # Состояние ожидания ввода года выпуска авто
     fill_engine_type = State()  # Состояние ввода типа двигателя
     fill_capacity = State()  # Состояние ввода обьема или можности
@@ -76,7 +77,7 @@ async def process_start_command(message: Message):
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text='Привіт! Якщо хочеш продати авто натисніть на кнопку ⬇️',
-                               reply_markup=markup)
+                         reply_markup=markup)
 
 
 # Этот хэндлер будет срабатывать на команду "/cancel" в любых состояниях,
@@ -127,7 +128,7 @@ async def fillform_comand_message_not_def(message: Message):
 @dp.callback_query(Text(text='fillform'), StateFilter(default_state))
 async def process_fillform_command(callback: CallbackQuery, state: FSMContext):
     await callback.message.delete()
-    await callback.message.answer(text='Напишіть марку та модель авто одним повідомленням')
+    await callback.message.answer(text='Напишіть марку та модель авто одним повідомленням: ')
     await state.set_state(FSMFillCarInfo.fill_model)
 
 
@@ -150,9 +151,23 @@ async def process_name_sent(message: Message, state: FSMContext):
     await state.update_data(model=message.text,
                             user_url=message.from_user.username,
                             user_name=message.from_user.full_name)
-    await message.answer(text='Дякую!\n\nНапишіть рік випуску авто:')
+    await message.answer(text='Напишіть назву міста, або населеного пункту, '
+                              'де знаходиться авто: ')
 
+    await state.set_state(FSMFillCarInfo.fill_city)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_city), F.text)
+async def process_fill_city(message: Message, state: FSMContext):
+    await state.update_data(city=message.text)
+    await message.answer(text='Дякую!\n\nНапишіть рік випуску авто:')
     await state.set_state(FSMFillCarInfo.fill_year_of_build)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_city))
+async def process_fill_city_error(message: Message):
+    await message.answer(text='Те, що Ви відправили, не схоже на назву міста\n'
+                              'Спробуйте ще раз: ')
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_year_of_build), F.text)
@@ -196,7 +211,6 @@ async def process_fill_gear_box_type(message: Message, state: FSMContext):
     await state.update_data(gear_box=message.text)
     await message.answer(text='Напишіть VIN або державний номер авто: ', )
     await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
-
 
 
 # That will star if correct ansfer for gearbox
@@ -358,7 +372,7 @@ async def process_fill_price(message: Message,
         markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
         await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
         await state.clear()
-        caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
+        caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nЛокація авто: {user_dict[message.from_user.id]["city"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
         media: list = []
         if "video" in user_dict[message.from_user.id]:
             video_media = InputMediaVideo(media=user_dict[message.from_user.id]['video'])
@@ -370,7 +384,7 @@ async def process_fill_price(message: Message,
             photo_media = InputMediaPhoto(media=object_photo)
             media.append(photo_media)
 
-        await bot.send_media_group(chat_id='-1001717002913', media=media)
+        await bot.send_media_group(chat_id=chat_id, media=media)
         media = []
     else:
         await message.answer(text='Вкажіть Контактний номер')
@@ -395,7 +409,7 @@ async def process_add_contact(message: Message, state: FSMContext):
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
     await state.clear()
-    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["contact"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
+    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["contact"]}\nЛокація авто: {user_dict[message.from_user.id]["city"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
     media: list = []
     if "video" in user_dict[message.from_user.id]:
         video_media = InputMediaVideo(media=user_dict[message.from_user.id]['video'])
@@ -408,7 +422,7 @@ async def process_add_contact(message: Message, state: FSMContext):
 
         media.append(photo_media)
 
-    await bot.send_media_group(chat_id='-1001717002913', media=media)
+    await bot.send_media_group(chat_id=chat_id, media=media)
     media = []
 
 
