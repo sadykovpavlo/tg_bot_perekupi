@@ -50,6 +50,7 @@ class FSMFillCarInfo(StatesGroup):
     fill_model = State()  # Состояние ожидание ввода марки авто
     fill_city = State()
     fill_year_of_build = State()  # Состояние ожидания ввода года выпуска авто
+    fill_range = State()  # probeg of auto
     fill_engine_type = State()  # Состояние ввода типа двигателя
     fill_capacity = State()  # Состояние ввода обьема или можности
     fill_gear_box_type = State()  # Состояние ожидания ввода типа коробки
@@ -173,9 +174,8 @@ async def process_fill_city_error(message: Message):
 @dp.message(StateFilter(FSMFillCarInfo.fill_year_of_build), F.text)
 async def process_year_of_build_sent(message: Message, state: FSMContext):
     await state.update_data(year_of_build=message.text)
-    await message.answer(text='Напишіть тип палива двигуна,\n'
-                              'або електро/гібрид:')
-    await state.set_state(FSMFillCarInfo.fill_engine_type)
+    await message.answer(text='Вкажіть пробіг авто: ')
+    await state.set_state(FSMFillCarInfo.fill_range)
 
 
 # Этот хэндлер будет срабатывать, если во время ввода имени
@@ -187,6 +187,20 @@ async def warning_not_name(message: Message):
                               'Мінімальна кількість символів - 4\n\n'
                               'Для відміни відправки форми - '
                               'відправте команду /cancel')
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_range), F.text)
+async def adding_range(message: Message, state: FSMContext):
+    await state.update_data(range=message.text)
+    await message.answer(text='Напишіть тип палива двигуна,\n'
+                              'або електро/гібрид:')
+    await state.set_state(FSMFillCarInfo.fill_engine_type)
+
+
+@dp.message(StateFilter(FSMFillCarInfo.fill_range))
+async def error_range_adding(message: Message):
+    await message.answer(text="Те, що Ви вказали, не схоже на пробіг\n"
+                              "Вкажіть пробіг: ")
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_engine_type), F.text)
@@ -322,7 +336,7 @@ async def process_of_upload_video_question(callback: CallbackQuery, state: FSMCo
     elif callback.data == 'no':
         await callback.message.delete()
         await callback.message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
-                                           ' комплектація, пробіг):')
+                                           ' комплектація):')
         await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
@@ -336,7 +350,7 @@ async def error_upload_photo(message: Message):
 async def process_of_upload_video(message: Message, state: FSMContext):
     await state.update_data(video=message.video.file_id)
     await message.answer(text='Напишіть декілька слів про ваше авто(підкраси, стан кузову, технічний стан,'
-                              ' комплектація, пробіг):')
+                              ' комплектація):')
     await state.set_state(FSMFillCarInfo.fill_some_info)
 
 
@@ -356,7 +370,7 @@ async def process_adding_some_info(message: Message, state: FSMContext):
 @dp.message(StateFilter(FSMFillCarInfo.fill_some_info))
 async def error_info_filling(message: Message):
     await message.answer(text="Напишіть декілька слів про ваше авто (підкраси, стан кузову, технічний стан, "
-                              "комплектація, пробіг):")
+                              "комплектація):")
 
 
 @dp.message(StateFilter(FSMFillCarInfo.fill_price), F.text)
@@ -372,7 +386,7 @@ async def process_fill_price(message: Message,
         markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
         await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
         await state.clear()
-        caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nЛокація авто: {user_dict[message.from_user.id]["city"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
+        caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: @{user_dict[message.from_user.id]["user_url"]}\nЛокація авто: {user_dict[message.from_user.id]["city"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nПробіг: {user_dict[message.from_user.id]["range"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
         media: list = []
         if "video" in user_dict[message.from_user.id]:
             video_media = InputMediaVideo(media=user_dict[message.from_user.id]['video'])
@@ -409,7 +423,7 @@ async def process_add_contact(message: Message, state: FSMContext):
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
     await state.clear()
-    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["contact"]}\nЛокація авто: {user_dict[message.from_user.id]["city"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
+    caption = f'Імʼя: {user_dict[message.from_user.id]["user_name"]}\nКонтакт: {user_dict[message.from_user.id]["contact"]}\nЛокація авто: {user_dict[message.from_user.id]["city"]}\nАвто: {user_dict[message.from_user.id]["model"]}\nДвигун(Тип/Паливо): {user_dict[message.from_user.id]["engine_type"]}\nПробіг: {user_dict[message.from_user.id]["range"]}\nОбʼєм: {user_dict[message.from_user.id]["engine_capacity"]}\nКоробка: {user_dict[message.from_user.id]["gear_box"]}\nРік: {user_dict[message.from_user.id]["year_of_build"]}\nVIN/Номер: {user_dict[message.from_user.id]["vin_or_num"]}\nЦіна: {user_dict[message.from_user.id]["price"]}\nПро авто: {user_dict[message.from_user.id]["car_info"]}'
     media: list = []
     if "video" in user_dict[message.from_user.id]:
         video_media = InputMediaVideo(media=user_dict[message.from_user.id]['video'])
