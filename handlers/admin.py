@@ -79,8 +79,17 @@ async def start_chat_with_user(callback: CallbackQuery, state: FSMContext, bot: 
 async def relay_message_to_client(message: Message, state: FSMContext, bot: Bot):
     data = await state.get_data()
     target_user_id = data.get("target_user_id")
-    if target_user_id:
-        await bot.send_message(chat_id=target_user_id, text=message.text)
+    
+    if not target_user_id:
+        await message.answer("Помилка: клієнт не знайдений.")
+        return
+
+    try:
+        # Используем copy_to вместо send_message. 
+        # Это универсальный метод aiogram, который копирует любое сообщение (текст, фото, стикер)
+        await message.copy_to(chat_id=target_user_id)
+    except Exception as e:
+        await message.answer(f"Не вдалося відправити повідомлення: {e}")
 
 
 @router.callback_query(Text(startswith="end_chat:"))

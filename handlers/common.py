@@ -18,10 +18,27 @@ async def answer_for_any_message(message: Message, bot: Bot):
     if message.from_user.id in active_chats:
         manager_id = active_chats[message.from_user.id]
         client_name = message.from_user.full_name
-        await bot.send_message(
-            chat_id=manager_id,
-            text=f"Відправлено від: {client_name}\n\n{message.text}"
-        )
+        from_text = f"Відправлено від: {client_name}"
+
+        if message.text:
+            await bot.send_message(
+                chat_id=manager_id,
+                text=f"{from_text}\n\n{message.text}"
+            )
+        else:
+            try:
+                # Try to add caption. This works for photos, videos, documents.
+                await message.copy_to(
+                    chat_id=manager_id,
+                    caption=f"{from_text}\n\n{message.caption or ''}".strip()
+                )
+            except TypeError:
+                # Fallback for message types that don't support captions (e.g., stickers)
+                await bot.send_message(
+                    chat_id=manager_id,
+                    text=from_text
+                )
+                await message.copy_to(chat_id=manager_id)
     else:
         await message.answer(text='Привіт!\n\n'
                                   'Щоб продати своє авто - '
