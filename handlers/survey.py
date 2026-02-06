@@ -167,28 +167,21 @@ from aiogram_media_group import media_group_handler
 
 # Прцесс добаления фото/ сейчас есть бага если добалять все фото разом то у нас много сообщений о том что добавь фото
 # добавить вопрос хочет ли еще фото юзер
-@router.message(StateFilter(FSMFillCarInfo.upload_photo), F.photo)
-@media_group_handler(only_albums=False)
-async def process_photo_sent(messages: list[Message], state: FSMContext):
+async def _process_and_update_photos(messages: list[Message], state: FSMContext):
     data = await state.get_data()
-    if 'photos' not in data:
-        # Initialize photos list if it doesn't exist
-        await state.update_data(photos=[])
-        data = await state.get_data()
-
+    # Initialize photos list if it doesn't exist
     photos_list = data.get('photos', [])
-    
+
     # Process received messages
     for message in messages:
-        if len(photos_list) < 10:
+        if len(photos_list) < 10 and message.photo:
             photos_list.append(message.photo[-1].file_id)
-    
+
     # Update state with the new list of photos
     await state.update_data(photos=photos_list)
 
     # Use the last message for replies
     last_message = messages[-1]
-
     num_photos = len(photos_list)
 
     if num_photos >= 10:
@@ -210,6 +203,19 @@ async def process_photo_sent(messages: list[Message], state: FSMContext):
     else: # num_photos < 4
         # Not enough photos yet.
         await last_message.answer(f"Потрібно додати ще як мінімум {4 - num_photos} фото.")
+
+
+# Media group handler
+@router.message(StateFilter(FSMFillCarInfo.upload_photo), F.media_group_id)
+@media_group_handler
+async def process_photo_group_sent(messages: list[Message], state: FSMContext):
+    await _process_and_update_photos(messages, state)
+
+
+# Single photo handler
+@router.message(StateFilter(FSMFillCarInfo.upload_photo), F.photo)
+async def process_single_photo_sent(message: Message, state: FSMContext):
+    await _process_and_update_photos([message], state)
 
 
 @router.message(StateFilter(FSMFillCarInfo.upload_photo),
@@ -297,21 +303,24 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str):
         f'Про авто: {user_data["car_info"]}'
     )
 
-    media: list = []
-    if "video" in user_data:
-        video_media = InputMediaVideo(media=user_data['video'])
-        media.append(video_media)
+    media = []
+    photos = user_data.get("photos", [])
+    video = user_data.get("video")
 
-    if "photos" in user_data and user_data["photos"]:
-        photo_media = InputMediaPhoto(media=user_data["photos"][0], caption=caption)
-        media.append(photo_media)
+    limit = 10
+    if video:
+        media.append(InputMediaVideo(media=video))
+        limit -= 1
 
-        for object_photo in user_data["photos"][1:10]:
-            photo_media = InputMediaPhoto(media=object_photo)
-            media.append(photo_media)
+    for photo_file_id in photos[:limit]:
+        media.append(InputMediaPhoto(media=photo_file_id))
 
+    # Now, if media is not empty, add the caption to the first element
     if media:
+        media[0].caption = caption
         await bot.send_media_group(chat_id=chat_id, media=media)
+    elif caption: # Fallback if no media
+        await bot.send_message(chat_id=chat_id, text=caption)
 
     reply_button = InlineKeyboardButton(
         text="💬 Відповісти клієнту",
