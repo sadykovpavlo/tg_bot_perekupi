@@ -1,5 +1,6 @@
 aiofiles==23.1.0
 aiogram==3.0.0b7
+aiogram_media_group
 aiohttp==3.8.4
 aioredis==2.0.1
 aiosignal==1.3.1
