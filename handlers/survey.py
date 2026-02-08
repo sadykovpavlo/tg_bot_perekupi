@@ -186,7 +186,7 @@ async def _process_and_update_photos(messages: list[Message], state: FSMContext)
 
     if num_photos >= 10:
         # Reached the maximum number of photos
-        await last_message.answer(text="Ви додали максимальну кількість фото!", reply_markup=ReplyKeyboardRemove())
+        await last_message.answer(text="Ви додали максимальну кількість фото!")
         yes_but = InlineKeyboardButton(text="Додати відео ✅", callback_data='yes')
         no_but = InlineKeyboardButton(text='Пропустити ➡️', callback_data='no')
         keyboard: list[list[InlineKeyboardButton]] = [[yes_but, no_but]]
@@ -195,11 +195,11 @@ async def _process_and_update_photos(messages: list[Message], state: FSMContext)
         await state.set_state(FSMFillCarInfo.upload_video_question)
     elif num_photos >= 4:
         # Sufficient photos, but less than 10. Allow adding more or stopping.
-        button_stop: KeyboardButton = KeyboardButton(text='Більше не додавати 🛑')
-        keyboard: ReplyKeyboardMarkup = ReplyKeyboardMarkup(keyboard=[[button_stop]], resize_keyboard=True)
-        await last_message.answer(reply_markup=keyboard, text='Ви можете додати ще фото\n'
-                                                              'Якщо ви не бажаєте додавати більше фото - натисніть  '
-                                                              '\n"Більше не додавати 🛑"')
+        button_stop = InlineKeyboardButton(text='Завершити додавання фото 🛑',
+                                           callback_data='stop_adding_photos')
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[button_stop]])
+        await last_message.answer(text='Ви можете додати ще фото, або завершити.',
+                                  reply_markup=keyboard)
     else: # num_photos < 4
         # Not enough photos yet.
         await last_message.answer(f"Потрібно додати ще як мінімум {4 - num_photos} фото.")
@@ -218,11 +218,11 @@ async def process_single_photo_sent(message: Message, state: FSMContext):
     await _process_and_update_photos([message], state)
 
 
-@router.message(StateFilter(FSMFillCarInfo.upload_photo),
-            Text(text='Більше не додавати 🛑'))
-async def process_of_change_state_to_fill_price(message: Message, state: FSMContext):
-    await message.answer(text="Фото збережені.",
-                         reply_markup=ReplyKeyboardRemove())
+@router.callback_query(StateFilter(FSMFillCarInfo.upload_photo),
+                       Text(text='stop_adding_photos'))
+async def process_stop_adding_photos(callback: CallbackQuery, state: FSMContext):
+    await callback.message.delete()
+    await callback.message.answer(text="Фото збережені.")
     yes_but = InlineKeyboardButton(text="Додати відео ✅",
                                    callback_data='yes')
     no_but = InlineKeyboardButton(text='Пропустити ➡️',
@@ -230,8 +230,8 @@ async def process_of_change_state_to_fill_price(message: Message, state: FSMCont
     keyboard: list[list[InlineKeyboardButton]] = [
         [yes_but, no_but]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
-    await message.answer(text="Чи бажаєте Ви додати відеоогляд авто?",
-                         reply_markup=markup)
+    await callback.message.answer(text="Чи бажаєте Ви додати відеоогляд авто?",
+                                  reply_markup=markup)
 
     await state.set_state(FSMFillCarInfo.upload_video_question)
 
