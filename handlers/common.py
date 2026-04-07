@@ -1,4 +1,4 @@
-from aiogram import Router, Bot
+from aiogram import Router, Bot, F
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
@@ -8,44 +8,53 @@ from aiogram.types import (
     Message,
 )
 
-from handlers.admin import active_chats
+
 
 router: Router = Router()
 
 
-@router.message(StateFilter(default_state), ~Command(commands=['help', 'fillform', 'cancel']), ~CommandStart())
-async def answer_for_any_message(message: Message, bot: Bot):
-    if message.from_user.id in active_chats:
-        manager_id = active_chats[message.from_user.id]
+@router.message(F.chat.type == 'private', StateFilter(default_state), ~Command(commands=['help', 'fillform', 'cancel']), ~CommandStart())
+async def answer_for_any_message(message: Message, bot: Bot, state: FSMContext, chat_id: str):
+    user_id = message.from_user.id
+    redis = state.storage.redis
+    
+    # Шукаємо чи є у юзера активна тема в групі менеджерів
+    topic_id_bytes = await redis.get(f"user:{user_id}:topic")
+    
+    if topic_id_bytes:
+        topic_id = int(topic_id_bytes)
         client_name = message.from_user.full_name
-        from_text = f"Відправлено від: {client_name}"
+        from_text = f"👤 Від: {client_name}"
 
         if message.text:
             await bot.send_message(
-                chat_id=manager_id,
-                text=f"{from_text}\n\n{message.text}"
+                chat_id=chat_id,
+                text=f"{from_text}\n\n{message.text}",
+                message_thread_id=topic_id
             )
         else:
             try:
-                # Try to add caption. This works for photos, videos, documents.
+                # Копіюємо медіа (фото, відео і т.д.) в топік
                 await message.copy_to(
-                    chat_id=manager_id,
+                    chat_id=chat_id,
+                    message_thread_id=topic_id,
                     caption=f"{from_text}\n\n{message.caption or ''}".strip()
                 )
-            except TypeError:
-                # Fallback for message types that don't support captions (e.g., stickers)
+            except Exception:
+                # Fallback для типів без caption
                 await bot.send_message(
-                    chat_id=manager_id,
-                    text=from_text
+                    chat_id=chat_id,
+                    text=from_text,
+                    message_thread_id=topic_id
                 )
-                await message.copy_to(chat_id=manager_id)
+                await message.copy_to(chat_id=chat_id, message_thread_id=topic_id)
     else:
         await message.answer(text='Привіт!\n\n'
                                   'Щоб продати своє авто - '
                                   'натисніть -> /fillform')
 
 
-@router.message(CommandStart(), StateFilter(default_state))
+@router.message(F.chat.type == 'private', CommandStart(), StateFilter(default_state))
 async def process_start_command(message: Message):
     start_button = InlineKeyboardButton(text='Хочу продати авто  🚗',
                                         callback_data='fillform')
@@ -82,7 +91,7 @@ async def process_of_help(message: Message):
                               'Щоб перевати заповнення форми - натисніть -> /cancel ')
 
 
-@router.message(Command(commands='fillform'), StateFilter(default_state))
+@router.message(F.chat.type == 'private', Command(commands='fillform'), StateFilter(default_state))
 async def fillform_comand_message(message: Message):
     start_button = InlineKeyboardButton(text='Хочу продати авто  🚗',
                                         callback_data='fillform')

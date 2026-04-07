@@ -1,117 +1,55 @@
-from aiogram import Router, Bot
-from aiogram.filters import Text, StateFilter
+from aiogram import Router, Bot, F
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import StatesGroup, State
-from aiogram.fsm.storage.base import StorageKey
-from aiogram.types import (
-    CallbackQuery,
-    Message,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardRemove,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from aiogram.types import Message
+
 
 router = Router()
 
-# This is a temporary in-memory storage.
-# For production, consider using Redis or a database.
-active_chats = {}  # {client_id: manager_id}
 
-
-class AdminStates(StatesGroup):
-    chatting = State()
-
-
-@router.callback_query(Text(startswith="ans:"))
-async def start_chat_with_user(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    target_user_id = int(callback.data.split(":")[1])
-    manager_id = callback.from_user.id
-
-    if target_user_id in active_chats and active_chats.get(target_user_id) != manager_id:
-        await callback.answer("Інший менеджер вже спілкується з цим клієнтом.", show_alert=True)
-        return
+@router.message(F.is_topic_message, ~Command("close"))
+async def relay_from_topic_to_client(message: Message, state: FSMContext, bot: Bot):
+    """Пересилка повідомлення з топіка клієнту"""
+    topic_id = message.message_thread_id
+    redis = state.storage.redis
     
-    if target_user_id in active_chats and active_chats.get(target_user_id) == manager_id:
-        await callback.answer()
-        return
-
-    # Set state for manager in their private chat
-    storage = state.storage
-    manager_private_chat_key = StorageKey(bot_id=bot.id, user_id=manager_id, chat_id=manager_id)
-    manager_fsm_context = FSMContext(bot=bot, storage=storage, key=manager_private_chat_key)
-    await manager_fsm_context.set_state(AdminStates.chatting)
-    await manager_fsm_context.set_data({'target_user_id': target_user_id})
-
-    active_chats[target_user_id] = manager_id
-
-    bot_info = await bot.get_me()
+    user_id_bytes = await redis.get(f"topic:{topic_id}")
+    if not user_id_bytes:
+        return # Цей топік не пов'язаний з клієнтом через бота
     
-    go_to_chat_button = InlineKeyboardButton(
-        text="↪️ Перейти в чат",
-        url=f"https://t.me/{bot_info.username}"
-    )
-
-    original_button = InlineKeyboardButton(
-        text="💬 Відповісти клієнту",
-        callback_data=callback.data
-    )
-
-    end_chat_button = InlineKeyboardButton(
-        text="❌ Завершити діалог",
-        callback_data=f"end_chat:{target_user_id}"
-    )
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[original_button], [go_to_chat_button], [end_chat_button]])
-
-    await callback.message.edit_reply_markup(reply_markup=keyboard)
-
-    # Client notification
-    await bot.send_message(
-        chat_id=target_user_id,
-        text="Менеджер підключився до чату."
-    )
-    await callback.answer("Ви підключились до діалогу. Тепер перейдіть в чат з ботом і відправте повідомлення.", show_alert=True)
-
-
-@router.message(StateFilter(AdminStates.chatting))
-async def relay_message_to_client(message: Message, state: FSMContext, bot: Bot):
-    data = await state.get_data()
-    target_user_id = data.get("target_user_id")
-    
-    if not target_user_id:
-        await message.answer("Помилка: клієнт не знайдений.")
-        return
-
+    user_id = int(user_id_bytes)
     try:
-        # Используем copy_to вместо send_message. 
-        # Это универсальный метод aiogram, который копирует любое сообщение (текст, фото, стикер)
-        await message.copy_to(chat_id=target_user_id)
+        # Копіюємо повідомлення юзеру
+        await message.copy_to(chat_id=user_id)
     except Exception as e:
-        await message.answer(f"Не вдалося відправити повідомлення: {e}")
+        await message.answer(f"⚠️ Не вдалося відправити повідомлення клієнту: {e}")
 
 
-@router.callback_query(Text(startswith="end_chat:"))
-async def end_chat_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
-    target_user_id = int(callback.data.split(":")[1])
-    manager_id = callback.from_user.id # This is the manager who ends the chat
-
-    # Clear state for manager in their private chat
-    storage = state.storage
-    manager_private_chat_key = StorageKey(bot_id=bot.id, user_id=manager_id, chat_id=manager_id)
-    manager_fsm_context = FSMContext(bot=bot, storage=storage, key=manager_private_chat_key)
-    await manager_fsm_context.clear()
-
-    original_button = InlineKeyboardButton(
-        text="💬 Відповісти клієнту",
-        callback_data=f"ans:{target_user_id}"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[original_button]])
-    await callback.message.edit_reply_markup(reply_markup=keyboard)
-
-    if target_user_id in active_chats:
-        del active_chats[target_user_id]
-    await bot.send_message(chat_id=target_user_id, text="Менеджер завершив діалог.")
+@router.message(Command("close"), F.is_topic_message)
+async def close_topic(message: Message, state: FSMContext, bot: Bot):
+    """Закриття діалогу та очищення зв'язків у Redis"""
+    topic_id = message.message_thread_id
+    redis = state.storage.redis
     
-    await callback.answer("Діалог завершено.")
+    user_id_bytes = await redis.get(f"topic:{topic_id}")
+    if user_id_bytes:
+        user_id = int(user_id_bytes)
+        # Видаляємо зв'язки
+        await redis.delete(f"topic:{topic_id}")
+        await redis.delete(f"user:{user_id}:topic")
+        
+        # Сповіщаємо клієнта
+        try:
+            await bot.send_message(chat_id=user_id, text="Дякуємо! Менеджер завершив діалог.")
+        except:
+            pass
+            
+        await message.answer("✅ Діалог закрито. Зв'язок з клієнтом розірвано.")
+        
+        # Опціонально: можна закрити топік в Telegram
+        try:
+            await bot.close_forum_topic(chat_id=message.chat.id, message_thread_id=topic_id)
+        except Exception as e:
+            await message.answer(f"Примітка: не вдалося закрити топік засобами Telegram: {e}")
+    else:
+        await message.answer("Цей топік не має активного зв'язку з клієнтом.")

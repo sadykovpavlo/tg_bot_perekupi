@@ -1,5 +1,5 @@
 from aiogram import Router, F, Bot
-from aiogram.filters import StateFilter, Text
+from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
 from aiogram.types import (
@@ -23,26 +23,33 @@ user_dict: dict[int, dict[str, str | int | bool]] = {}
 
 # Этот хэндлер будет срабатывать на команду /fillform
 # и переводить бота в состояние ожидания ввода марки и модели авто
-@router.callback_query(Text(text='fillform'), StateFilter(default_state))
+@router.callback_query(F.data == 'fillform', StateFilter(default_state))
 async def process_fillform_command(callback: CallbackQuery, state: FSMContext):
-    await callback.message.delete()
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.message.answer(text='Напишіть марку та модель авто одним повідомленням: ')
     await state.set_state(FSMFillCarInfo.fill_model)
 
 
 # Этот хэндлер будет срабатывать на команду /fillform
 # и переводить бота в состояние ожидания ввода марки и модели авто
-@router.callback_query(Text(text='fillform'), ~StateFilter(default_state))
+@router.callback_query(F.data == 'fillform', ~StateFilter(default_state))
 async def process_fillform_command_not_default(callback: CallbackQuery):
-    await callback.message.delete()
+    await callback.answer()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.message.answer(text="Ви вже почали заповнювати форму.\n"
                                        "Щоб перевати заповнення форми - натисніть -> /cancel ")
 
 
 # Этот хэндлер будет срабатывать, если введено корректное марка и модель
 # и переводить в состояние ожидания ввода года випуска авто
-@router.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4, ~Text(text=['/fillform',
-                                                                                                        '/start']))
+@router.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4, ~F.text.in_(['/fillform', '/start']))
 async def process_name_sent(message: Message, state: FSMContext):
     # Cохраняем введенное имя в хранилище по ключу "model"
     await state.update_data(model=message.text,
@@ -138,8 +145,9 @@ async def process_vin_or_number(message: Message, state: FSMContext):
     await state.set_state(FSMFillCarInfo.confirm_vin_state)
 
 
-@router.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state), Text(text=['yes', 'no']))
+@router.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state), F.data.in_(['yes', 'no']))
 async def confirm_vin(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     if callback.data == 'yes':
         await callback.message.delete()
         await callback.message.answer(text='Додайте від 4 до 10 фото:')
@@ -158,6 +166,7 @@ async def incorrect_num_or_vin(message: Message):
 
 @router.callback_query(StateFilter(FSMFillCarInfo.confirm_vin_state))
 async def confirm_vin_error(callback: CallbackQuery):
+    await callback.answer()
     await callback.message.answer(text='Ви не підтвердели коррекність данних\n'
                                        'Ви можете підтвердити у повідомленні вище.')
 
@@ -219,8 +228,9 @@ async def process_single_photo_sent(message: Message, state: FSMContext):
 
 
 @router.callback_query(StateFilter(FSMFillCarInfo.upload_photo),
-                       Text(text='stop_adding_photos'))
+                       F.data == 'stop_adding_photos')
 async def process_stop_adding_photos(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     await callback.message.delete()
     await callback.message.answer(text="Фото збережені.")
     yes_but = InlineKeyboardButton(text="Додати відео ✅",
@@ -236,8 +246,9 @@ async def process_stop_adding_photos(callback: CallbackQuery, state: FSMContext)
     await state.set_state(FSMFillCarInfo.upload_video_question)
 
 
-@router.callback_query(StateFilter(FSMFillCarInfo.upload_video_question), Text(text=['yes', 'no']))
+@router.callback_query(StateFilter(FSMFillCarInfo.upload_video_question), F.data.in_(['yes', 'no']))
 async def process_of_upload_video_question(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
     if callback.data == 'yes':
         await callback.message.delete()
         await callback.message.answer(text='Додайте відео: ')
@@ -282,8 +293,8 @@ async def error_info_filling(message: Message):
                               "комплектація):")
 
 
-async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str):
-    user_data = user_dict.get(user_id)
+async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str, state: FSMContext):
+    user_data = await state.get_data()
     if not user_data:
         return
 
@@ -297,11 +308,27 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str):
         f'Рік: {user_data["year_of_build"]}\n'
         f'VIN/Номер: {user_data["vin_or_num"]}\n'
         f'Ціна: {user_data["price"]}\n'
-        f'Про авто: {user_data["car_info"]}'
+        f'Про авто: {user_data["car_info"]}\n'
         f'Імʼя: {user_data["user_name"]}\n'
         f'Контакт: {contact_info}\n'
         f'Локація авто: {user_data["city"]}\n'
     )
+
+    # 1. Створюємо топік для цієї заявки
+    topic_name = f"{user_data.get('model', 'Авто')} | {user_data.get('user_name', 'Клієнт')}"
+    topic_id = None
+    try:
+        topic = await bot.create_forum_topic(chat_id=chat_id, name=topic_name)
+        topic_id = topic.message_thread_id
+        
+        # Зберігаємо зв'язок топіка з юзером в Redis
+        redis = state.storage.redis
+        await redis.set(f"topic:{topic_id}", user_id)
+        await redis.set(f"user:{user_id}:topic", topic_id)
+    except Exception as e:
+        # Якщо не вдалося створити топік (наприклад, група не є форумом),
+        # продовжуємо роботу як раніше, відправляючи в загальний чат
+        pass
 
     media = []
     photos = user_data.get("photos", [])
@@ -318,19 +345,15 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str):
     # Now, if media is not empty, add the caption to the first element
     if media:
         media[0].caption = caption
-        await bot.send_media_group(chat_id=chat_id, media=media)
+        await bot.send_media_group(chat_id=chat_id, media=media, message_thread_id=topic_id)
     elif caption: # Fallback if no media
-        await bot.send_message(chat_id=chat_id, text=caption)
+        await bot.send_message(chat_id=chat_id, text=caption, message_thread_id=topic_id)
 
-    reply_button = InlineKeyboardButton(
-        text="💬 Відповісти клієнту",
-        callback_data=f"ans:{user_id}"
-    )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[[reply_button]])
+    # Замість кнопки "Відповісти" менеджер просто пише в топік
     await bot.send_message(
         chat_id=chat_id,
-        text="Нова заявка!",
-        reply_markup=keyboard
+        text="Нова заявка! Ви можете відповідати клієнту прямо тут 👇",
+        message_thread_id=topic_id
     )
 
 
@@ -348,9 +371,8 @@ async def process_fill_price(message: Message,
         keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
         markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
         await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
+        await send_car_info_to_manager(message.from_user.id, bot, chat_id, state)
         await state.clear()
-        
-        await send_car_info_to_manager(message.from_user.id, bot, chat_id)
     else:
         await message.answer(text='Вкажіть Контактний номер')
         await state.set_state(FSMFillCarInfo.fill_contact_info)
@@ -373,9 +395,8 @@ async def process_add_contact(message: Message, state: FSMContext, bot: Bot, cha
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
+    await send_car_info_to_manager(message.from_user.id, bot, chat_id, state)
     await state.clear()
-    
-    await send_car_info_to_manager(message.from_user.id, bot, chat_id)
 
 
 # Handler works when user sent not valid number
