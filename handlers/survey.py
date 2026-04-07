@@ -289,9 +289,6 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str):
 
     contact_info = f'@{user_data["user_url"]}' if user_data.get("user_url") else user_data.get("contact", "Не вказано")
     caption = (
-        f'Імʼя: {user_data["user_name"]}\n'
-        f'Контакт: {contact_info}\n'
-        f'Локація авто: {user_data["city"]}\n'
         f'Авто: {user_data["model"]}\n'
         f'Двигун(Тип/Паливо): {user_data["engine_type"]}\n'
         f'Пробіг: {user_data["range"]}\n'
@@ -301,6 +298,9 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str):
         f'VIN/Номер: {user_data["vin_or_num"]}\n'
         f'Ціна: {user_data["price"]}\n'
         f'Про авто: {user_data["car_info"]}'
+        f'Імʼя: {user_data["user_name"]}\n'
+        f'Контакт: {contact_info}\n'
+        f'Локація авто: {user_data["city"]}\n'
     )
 
     media = []
