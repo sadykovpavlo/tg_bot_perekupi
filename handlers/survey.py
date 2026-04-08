@@ -1,3 +1,4 @@
+import logging
 from aiogram import Router, F, Bot
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -341,8 +342,9 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str, state: 
         await redis.set(f"topic:{topic_id}", user_id)
         await redis.set(f"user:{user_id}:topic", topic_id)
     except Exception as e:
-        # Якщо не вдалося створити топік (наприклад, група не є форумом),
+        # Якщо не вдалося створити топік (наприклад, група не є форумом або немає прав),
         # продовжуємо роботу як раніше, відправляючи в загальний чат
+        logging.error(f"Failed to create forum topic: {e}")
         pass
 
     media = []
