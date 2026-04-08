@@ -1,4 +1,5 @@
 from aiogram import Router, Bot, F
+import logging
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import default_state
@@ -18,9 +19,8 @@ async def answer_for_any_message(message: Message, bot: Bot, state: FSMContext, 
     user_id = message.from_user.id
     redis = state.storage.redis
     
-    # Шукаємо чи є у юзера активна тема в групі менеджерів
+    # 1. Шукаємо нову систему (Топіки)
     topic_id_bytes = await redis.get(f"user:{user_id}:topic")
-    
     if topic_id_bytes:
         topic_id = int(topic_id_bytes)
         client_name = message.from_user.full_name
@@ -49,6 +49,23 @@ async def answer_for_any_message(message: Message, bot: Bot, state: FSMContext, 
                 )
                 await message.copy_to(chat_id=chat_id, message_thread_id=topic_id)
     else:
+        # TODO: LEGACY - Видалити блок перевірки активного чату після міграції
+        # ПЕРЕВІРКА ЛЕГАСІ-ЧАТУ (Приватний чат з менеджером)
+        manager_id_bytes = await redis.get(f"active_chat:{user_id}")
+        if manager_id_bytes:
+            manager_id = int(manager_id_bytes)
+            client_name = message.from_user.full_name
+            from_text = f"👤 [Legacy] Від: {client_name}"
+            
+            try:
+                if message.text:
+                    await bot.send_message(chat_id=manager_id, text=f"{from_text}\n\n{message.text}")
+                else:
+                    await message.copy_to(chat_id=manager_id, caption=f"{from_text}\n\n{message.caption or ''}".strip())
+                return
+            except Exception as e:
+                logging.error(f"Failed to relay to legacy manager {manager_id}: {e}")
+
         await message.answer(text='Привіт!\n\n'
                                   'Щоб продати своє авто - '
                                   'натисніть -> /fillform')

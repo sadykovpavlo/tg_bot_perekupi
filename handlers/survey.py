@@ -15,10 +15,7 @@ from aiogram.types import (
 )
 
 from states.car_info import FSMFillCarInfo
-
 router: Router = Router()
-
-user_dict: dict[int, dict[str, str | int | bool]] = {}
 
 
 # Этот хэндлер будет срабатывать на команду /fillform
@@ -48,9 +45,11 @@ async def process_fillform_command_not_default(callback: CallbackQuery):
 
 
 # Этот хэндлер будет срабатывать, если введено корректное марка и модель
-# и переводить в состояние ожидания ввода года випуска авто
-@router.message(StateFilter(FSMFillCarInfo.fill_model), lambda massage: len(massage.text) >= 4, ~F.text.in_(['/fillform', '/start']))
+# и переводить в состояние ожидания ввода города
+@router.message(StateFilter(FSMFillCarInfo.fill_model), lambda message: len(message.text) >= 4, ~F.text.in_(['/fillform', '/start', '/cancel', '/help']))
 async def process_name_sent(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_model:
+        return
     # Cохраняем введенное имя в хранилище по ключу "model"
     await state.update_data(model=message.text,
                             user_url=message.from_user.username,
@@ -63,6 +62,8 @@ async def process_name_sent(message: Message, state: FSMContext):
 
 @router.message(StateFilter(FSMFillCarInfo.fill_city), F.text)
 async def process_fill_city(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_city:
+        return
     await state.update_data(city=message.text)
     await message.answer(text='Дякую!\n\nНапишіть рік випуску авто:')
     await state.set_state(FSMFillCarInfo.fill_year_of_build)
@@ -76,6 +77,8 @@ async def process_fill_city_error(message: Message):
 
 @router.message(StateFilter(FSMFillCarInfo.fill_year_of_build), F.text)
 async def process_year_of_build_sent(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_year_of_build:
+        return
     await state.update_data(year_of_build=message.text)
     await message.answer(text='Вкажіть пробіг авто: ')
     await state.set_state(FSMFillCarInfo.fill_range)
@@ -93,6 +96,8 @@ async def warning_not_name(message: Message):
 
 @router.message(StateFilter(FSMFillCarInfo.fill_range), F.text)
 async def adding_range(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_range:
+        return
     await state.update_data(range=message.text)
     await message.answer(text='Напишіть тип палива двигуна,\n'
                               'або електро/гібрид:')
@@ -107,6 +112,8 @@ async def error_range_adding(message: Message):
 
 @router.message(StateFilter(FSMFillCarInfo.fill_engine_type), F.text)
 async def process_engine_type_sent(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_engine_type:
+        return
     await state.update_data(engine_type=message.text)
     await message.answer(text='Дякую!\n'
                               'Тепер напишить обʼєм двигуна, або для електро кількіть кВт:')
@@ -115,6 +122,8 @@ async def process_engine_type_sent(message: Message, state: FSMContext):
 
 @router.message(StateFilter(FSMFillCarInfo.fill_capacity), F.text)
 async def process_of_add_capacity(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_capacity:
+        return
     await state.update_data(engine_capacity=message.text)
     # buttons
     await message.answer(text='Напишіть тип коробки передач:')
@@ -122,16 +131,20 @@ async def process_of_add_capacity(message: Message, state: FSMContext):
 
 
 # that handler will work if add correct type of gearbox
-@router.message(StateFilter(FSMFillCarInfo.fill_gear_box_type))
+@router.message(StateFilter(FSMFillCarInfo.fill_gear_box_type), F.text)
 async def process_fill_gear_box_type(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_gear_box_type:
+        return
     await state.update_data(gear_box=message.text)
     await message.answer(text='Напишіть VIN або державний номер авто: ')
     await state.set_state(FSMFillCarInfo.fill_vin_or_numbers)
 
 
 # That will star if correct ansfer for gearbox
-@router.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers), lambda massage: len(massage.text) >= 5)
+@router.message(StateFilter(FSMFillCarInfo.fill_vin_or_numbers), lambda message: len(message.text) >= 5, F.text)
 async def process_vin_or_number(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_vin_or_numbers:
+        return
     await state.update_data(vin_or_num=message.text)
     yes_but = InlineKeyboardButton(text='Вірно ✅',
                                    callback_data='yes')
@@ -282,6 +295,8 @@ async def error_vidoe_upload(message: Message):
 
 @router.message(StateFilter(FSMFillCarInfo.fill_some_info), F.text)
 async def process_adding_some_info(message: Message, state: FSMContext):
+    if await state.get_state() != FSMFillCarInfo.fill_some_info:
+        return
     await state.update_data(car_info=message.text)
     await message.answer(text='Вкажіть ціну: ')
     await state.set_state(FSMFillCarInfo.fill_price)
@@ -349,11 +364,17 @@ async def send_car_info_to_manager(user_id: int, bot: Bot, chat_id: str, state: 
     elif caption: # Fallback if no media
         await bot.send_message(chat_id=chat_id, text=caption, message_thread_id=topic_id)
 
-    # Замість кнопки "Відповісти" менеджер просто пише в топік
+    # Додаємо повідомлення про нову заявку в той же топік з кнопками керування
+    close_but = InlineKeyboardButton(text="🔒 Закрити діалог", callback_data="close_dialog")
+    delete_but = InlineKeyboardButton(text="🗑️ Видалити топік", callback_data="delete_dialog")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[[close_but, delete_but]])
+    
     await bot.send_message(
         chat_id=chat_id,
-        text="Нова заявка! Ви можете відповідати клієнту прямо тут 👇",
-        message_thread_id=topic_id
+        text="🔺 Нова заявка! Ви можете відповідати клієнту прямо тут.\n"
+             "Використовуйте кнопки нижче або команди /close та /delete для керування чатом.",
+        message_thread_id=topic_id,
+        reply_markup=keyboard
     )
 
 
@@ -362,15 +383,20 @@ async def process_fill_price(message: Message,
                              state: FSMContext,
                              bot: Bot,
                              chat_id: str):
+    if await state.get_state() != FSMFillCarInfo.fill_price:
+        return
     await state.update_data(price=message.text)
-    user_dict[message.from_user.id] = await state.get_data()
-    if user_dict[message.from_user.id]["user_url"]:
+    data = await state.get_data()
+    
+    if data.get("user_url"):
         await message.answer(text='Дякую. Менеджер звʼяжеться з вами.')
         start_button = InlineKeyboardButton(text='Повторити 🔄',
                                             callback_data='fillform')
         keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
         markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
         await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
+        
+        # Відправляємо менеджеру
         await send_car_info_to_manager(message.from_user.id, bot, chat_id, state)
         await state.clear()
     else:
@@ -387,14 +413,17 @@ async def error_for_price(message: Message):
 @router.message(StateFilter(FSMFillCarInfo.fill_contact_info), F.text,
             lambda x: x.text.isdigit() and 10 <= len(x.text) <= 12)
 async def process_add_contact(message: Message, state: FSMContext, bot: Bot, chat_id: str):
+    if await state.get_state() != FSMFillCarInfo.fill_contact_info:
+        return
     await state.update_data(contact=message.text)
-    user_dict[message.from_user.id] = await state.get_data()
     await message.answer(text='Дякую. Менеджер звʼяжеться з вами.')
     start_button = InlineKeyboardButton(text='Повторити 🔄',
                                         callback_data='fillform')
     keyboard: list[list[InlineKeyboardButton]] = [[start_button]]
     markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
     await message.answer(text="Для повторної відправки форми - натискайте на кнопку ⬇️", reply_markup=markup)
+    
+    # Відправляємо менеджеру
     await send_car_info_to_manager(message.from_user.id, bot, chat_id, state)
     await state.clear()
 

@@ -3,12 +3,37 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.redis import RedisStorage, Redis
+from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
 from environs import Env
 
 from handlers import common, survey, admin
 
 
-def main():
+async def set_bot_commands(bot: Bot, chat_id: str):
+    """Регистрация команд в меню"""
+    # Команды для всех (в личке)
+    user_commands = [
+        BotCommand(command="start", description="Запустити бота"),
+        BotCommand(command="fillform", description="Заповнити анкету авто"),
+        BotCommand(command="help", description="Допомога"),
+    ]
+    await bot.set_my_commands(commands=user_commands, scope=BotCommandScopeDefault())
+
+    # Команды для менеджеров (в группе)
+    if chat_id:
+        try:
+            admin_commands = [
+                BotCommand(command="close", description="Закрити діалог"),
+                BotCommand(command="delete", description="Видалити топік"),
+            ]
+            await bot.set_my_commands(
+                commands=admin_commands, 
+                scope=BotCommandScopeChat(chat_id=int(chat_id))
+            )
+        except Exception as e:
+            logging.error(f"Failed to set admin commands: {e}")
+
+async def main():
     # Logging configuration
     logging.basicConfig(
         level=logging.INFO,
@@ -47,16 +72,8 @@ def main():
     bot: Bot = Bot(token=bot_token, parse_mode='HTML')
     dp: Dispatcher = Dispatcher(storage=storage, chat_id=chat_id)
 
-    # Middleware for logging ALL updates
-    @dp.update.outer_middleware()
-    async def log_update_middleware(handler, event, data):
-        logger.info(f"Received update: {event}")
-        return await handler(event, data)
-
-    # Error handler
-    @dp.errors()
-    async def error_handler(event, data):
-        logger.error(f"Error handling update: {event.exception}", exc_info=event.exception)
+    # Set bot commands
+    await set_bot_commands(bot, chat_id)
 
     # Include routers
     dp.include_router(admin.router)
@@ -66,10 +83,10 @@ def main():
     # Start the bot
     logger.info('Starting bot')
     try:
-        dp.run_polling(bot)
+        await dp.start_polling(bot)
     except Exception as e:
         logger.error(f'An error occurred: {e}')
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())
