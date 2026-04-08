@@ -22,13 +22,28 @@ async def _perform_close_topic(chat_id: int, topic_id: int, state: FSMContext, b
     
     if user_id_bytes:
         user_id = int(user_id_bytes)
-        # Видаляємо зв'язки
+        # Видаляємо зв'язок топіка з юзером
         await redis.delete(f"topic:{topic_id}")
-        await redis.delete(f"user:{user_id}:topic")
+        
+        # Перевіряємо, чи цей топік є зараз "активним" для юзера в боті
+        current_active_topic = await redis.get(f"user:{user_id}:topic")
+        if current_active_topic and int(current_active_topic) == topic_id:
+            # Видаляємо старий зв'язок
+            await redis.delete(f"user:{user_id}:topic")
+            
+            # СПРОБА ФЕЙЛОВЕРУ: чи є у юзера інші відкриті топіки?
+            all_keys = await redis.keys("topic:*")
+            for key in all_keys:
+                owner_id = await redis.get(key)
+                if owner_id and int(owner_id) == user_id:
+                    new_topic_id = int(key.split(":")[-1])
+                    if new_topic_id != topic_id:
+                        await redis.set(f"user:{user_id}:topic", new_topic_id)
+                        break
         
         # Сповіщаємо клієнта
         try:
-            await bot.send_message(chat_id=user_id, text="Дякуємо! Менеджер завершив діалог.")
+            await bot.send_message(chat_id=user_id, text="Дякуємо! Менеджер завершив діалог за цією заявкою.")
         except:
             pass
         
@@ -48,7 +63,19 @@ async def _perform_delete_topic(chat_id: int, topic_id: int, state: FSMContext, 
     if user_id_bytes:
         user_id = int(user_id_bytes)
         await redis.delete(f"topic:{topic_id}")
-        await redis.delete(f"user:{user_id}:topic")
+        
+        # Аналогічний фейловер для видалення
+        current_active_topic = await redis.get(f"user:{user_id}:topic")
+        if current_active_topic and int(current_active_topic) == topic_id:
+            await redis.delete(f"user:{user_id}:topic")
+            all_keys = await redis.keys("topic:*")
+            for key in all_keys:
+                owner_id = await redis.get(key)
+                if owner_id and int(owner_id) == user_id:
+                    new_topic_id = int(key.split(":")[-1])
+                    if new_topic_id != topic_id:
+                        await redis.set(f"user:{user_id}:topic", new_topic_id)
+                        break
         
         try:
             await bot.send_message(chat_id=user_id, text="Дякуємо! Діалог завершено.")
